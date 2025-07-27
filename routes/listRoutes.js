@@ -1,5 +1,6 @@
 const express = require('express');
 const List = require('../models/List');
+const User = require('../models/User');
 const authMiddleware = require('../middlewares/authMiddleware');
 
 module.exports = function (io) {
@@ -23,17 +24,29 @@ module.exports = function (io) {
     }
   });
 
-  // ➕ Create a new list
+  // ➕ Create a new list (members by email)
   router.post('/', async (req, res) => {
     try {
       const { name, members = [] } = req.body;
+
+      // Look up user IDs by email
+      const users = await User.find({ email: { $in: members } });
+      const foundEmails = users.map(u => u.email);
+      const missing = members.filter(email => !foundEmails.includes(email));
+
+      if (missing.length > 0) {
+        return res.status(400).json({ error: `Users not found: ${missing.join(', ')}` });
+      }
+
+      const memberIds = users.map(u => u._id);
+
       const list = await List.create({
         name,
         createdBy: req.userId,
-        members,
+        members: memberIds
       });
 
-      io.to(list._id.toString()).emit('listCreated', list); // Optional real-time update
+      io.to(list._id.toString()).emit('listCreated', list);
       res.status(201).json({ data: list });
     } catch (err) {
       console.error('Create list error:', err);
@@ -41,7 +54,7 @@ module.exports = function (io) {
     }
   });
 
-  // 👥 Add members to an existing list
+  // 👥 Add members to an existing list using email
   router.put('/:id/members', async (req, res) => {
     try {
       const list = await List.findOne({ _id: req.params.id, createdBy: req.userId });
@@ -49,7 +62,17 @@ module.exports = function (io) {
       if (!list) return res.status(404).json({ error: 'List not found or unauthorized' });
 
       const { members } = req.body;
-      list.members.push(...members.filter(m => !list.members.includes(m)));
+
+      const users = await User.find({ email: { $in: members } });
+      const foundEmails = users.map(u => u.email);
+      const missing = members.filter(email => !foundEmails.includes(email));
+
+      if (missing.length > 0) {
+        return res.status(400).json({ error: `Users not found: ${missing.join(', ')}` });
+      }
+
+      const newMemberIds = users.map(user => user._id).filter(id => !list.members.includes(id));
+      list.members.push(...newMemberIds);
       await list.save();
 
       res.json({ data: list });
