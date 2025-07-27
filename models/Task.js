@@ -12,6 +12,11 @@ const taskSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  listId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'List', // ✅ shared list reference
+    required: true,
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Task', taskSchema);
